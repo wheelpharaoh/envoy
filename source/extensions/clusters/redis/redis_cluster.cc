@@ -230,13 +230,11 @@ RedisCluster::RedisDiscoverySession::RedisDiscoverySession::ProcessCluster(
                            [this, array](Network::DnsResolver::ResolutionStatus status,
                                       std::list<Network::DnsResponse>&& response) -> void {
                               if (status == Network::DnsResolver::ResolutionStatus::Success) {
-                                ENVOY_LOG(trace, "re-resolution success for '{}'", array[0].asString());
                                 Network::Address::InstanceConstSharedPtr slotAddress_ = !response.empty()
                                                              ? Network::Utility::parseInternetAddress(response.front().address_->ip()->addressAsString(),
                                                                                                       array[1].asInteger())
                                                              : nullptr;
                                 if (slotAddress_) {
-                                  ENVOY_LOG(trace, "slotAddress_->asString() {}", slotAddress_->asString());
                                   discovery_address_list_.push_back(slotAddress_);
                                 }
                               }
