@@ -187,6 +187,7 @@ void RedisCluster::DnsDiscoveryResolveTarget::startResolveDns() {
           // slots" command for service discovery and slot allocation. All subsequent
           // discoveries are handled by RedisDiscoverySession and will not use DNS
           // resolution again.
+          // ^valid if not Elasticache w/in-transit encryption enabled
           parent_.redis_discovery_session_.registerDiscoveryAddress(std::move(response), port_);
           parent_.redis_discovery_session_.startResolveRedis();
         }
@@ -222,8 +223,30 @@ RedisCluster::RedisDiscoverySession::RedisDiscoverySession::ProcessCluster(
   try {
     return Network::Utility::parseInternetAddress(array[0].asString(), array[1].asInteger(), false);
   } catch (const EnvoyException& ex) {
-    ENVOY_LOG(debug, "Invalid ip address in CLUSTER SLOTS response: {}", ex.what());
-    return nullptr;
+    // hostnames are given, instead of IP address, from ElastiCache
+    // resolve again
+    try {
+        parent_.dns_resolver_->resolve(array[0].asString(), parent_.dns_lookup_family_,
+                           [this, array](Network::DnsResolver::ResolutionStatus status,
+                                      std::list<Network::DnsResponse>&& response) -> void {
+                              if (status == Network::DnsResolver::ResolutionStatus::Success) {
+                                ENVOY_LOG(trace, "re-resolution success for '{}'", array[0].asString());
+                                Network::Address::InstanceConstSharedPtr slotAddress_ = !response.empty()
+                                                             ? Network::Utility::parseInternetAddress(response.front().address_->ip()->addressAsString(),
+                                                                                                      array[1].asInteger())
+                                                             : nullptr;
+                                if (slotAddress_) {
+                                  ENVOY_LOG(trace, "slotAddress_->asString() {}", slotAddress_->asString());
+                                  discovery_address_list_.push_back(slotAddress_);
+                                }
+                              }
+                            });
+        return discovery_address_list_.back();
+
+    } catch (const EnvoyException& ex) {
+      ENVOY_LOG(debug, "Invalid node address in CLUSTER SLOTS response: '{}'", ex.what());
+      return nullptr;
+    }
   }
 }
 
